@@ -1,0 +1,7 @@
+IRresiver_ch.c:9:6:InitResiver	16	static
+IRresiver_ch.c:24:6:reciveData	16	static
+IRresiver_ch.c:131:6:resume	4	static
+IRresiver_ch.c:139:9:decodeData	16	static
+IRresiver_ch.c:162:9:identify	16	static
+IRresiver_ch.c:177:6:leer_num	4	static
+IRresiver_ch.c:200:6:detectar_tecla	4	static
