@@ -601,6 +601,7 @@ void select_data(){
 				r1_enter = numero_temp;
 				r1 = (numero_temp/16);
 				k=r1;
+				params_choose(r1_enter);
 				actualizar_par();
 			}
 			break;
@@ -653,7 +654,7 @@ void state_motor(){
 			__HAL_TIM_SET_COUNTER(&htim3,0);
 			if(r1 > 0){
 				PID(); // controlador
-				revoluciones = (1/u) * 100;
+				revoluciones = (1/u) * 50;
 			}
 		}
 
@@ -679,7 +680,7 @@ void state_motor(){
 
 		if(r1 > 0){
 			PID(); // controlador
-			revoluciones = (1/u) * 100;
+			revoluciones = (1/u) * 50;
 		}
 
 	}

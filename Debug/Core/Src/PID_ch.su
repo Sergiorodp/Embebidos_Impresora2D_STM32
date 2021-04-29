@@ -1,3 +1,4 @@
 PID_ch.c:6:6:initPID_ch	40	static
 PID_ch.c:34:6:PID	16	static
 PID_ch.c:51:6:actualizar_par	40	static
+PID_ch.c:63:6:params_choose	24	static

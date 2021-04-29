@@ -23,5 +23,6 @@ float k,tau,theta;   //Parámetros del Modelo del sistema
 void initPID_ch(void);
 void PID(void);
 void actualizar_par(void);
+void params_choose( uint16_t limits);
 
 #endif

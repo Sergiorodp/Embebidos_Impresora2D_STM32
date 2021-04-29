@@ -15,7 +15,7 @@ void initPID_ch(){
 
 	Ts = 1;
 
-	k= 0 , tau=1500/16, theta= 150/16 + Ts/2 ;
+	k= 0 , tau= 0, theta= 150/16 + Ts/2 ;
 
 	//*************************************************************************//
 	//*****************   SINTONIA POR ZIEGLER y NICHOLS    *******************//
@@ -58,5 +58,19 @@ void actualizar_par(){
 	q1=-kp*(1-Ts/(2.0*ti)+(2.0*td)/Ts);
 	q2=(kp*td)/Ts;
 
+}
+
+void params_choose( uint16_t limits){
+	if(limits < 600){
+		tau = (r1 * 0.7);
+		theta= 180/16 + Ts/2;
+	}
+	else if(limits >= 600 && limits <= 1500){
+		tau = 1500/16;
+		theta= 230/16 + Ts/2;
+	}else{
+		tau = 3000/16;
+		theta= 150/16 + Ts/2;
+	}
 }
 
