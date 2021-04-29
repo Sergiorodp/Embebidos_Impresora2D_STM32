@@ -37,8 +37,8 @@ void PID(){
 
 	u = u_1 + q0*e + q1*e_1 + q2*e_2; //Ley del controlador PID discreto
 
-	if (u >= 100.0)        //Saturo la accion de control 'uT' en un tope maximo y minimo
-	u = 100.0;
+	if (u >= 50.0)        //Saturo la accion de control 'uT' en un tope maximo y minimo
+	u = 50.0;
 	if (u <= 0.0 || r1==0)
 	u = 0.1;
 

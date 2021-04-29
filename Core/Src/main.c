@@ -654,7 +654,7 @@ void state_motor(){
 			__HAL_TIM_SET_COUNTER(&htim3,0);
 			if(r1 > 0){
 				PID(); // controlador
-				revoluciones = (50/abs(u-100));
+				revoluciones = abs(u-50);
 			}
 		}
 
@@ -680,7 +680,7 @@ void state_motor(){
 
 		if(r1 > 0){
 			PID(); // controlador
-			revoluciones = (50/abs(u-100));
+			revoluciones = abs(u-50);
 		}
 
 	}
