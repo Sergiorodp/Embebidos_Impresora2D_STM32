@@ -37,10 +37,10 @@ void PID(){
 
 	u = u_1 + q0*e + q1*e_1 + q2*e_2; //Ley del controlador PID discreto
 
-	if (u >= 50.0)        //Saturo la accion de control 'uT' en un tope maximo y minimo
-	u = 50.0;
+	if (u >= 100.0)        //Saturo la accion de control 'uT' en un tope maximo y minimo
+	u = 100.0;
 	if (u <= 0.0 || r1==0)
-	u = 0.0;
+	u = 0.1;
 
 	e_2=e_1;
 	e_1=e;
@@ -61,15 +61,13 @@ void actualizar_par(){
 }
 
 void params_choose( uint16_t limits){
-	if(limits < 600){
-		tau = (r1 * 0.7);
+	tau = (r1 * 0.6);
+	if(limits < 800){
 		theta= 180/16 + Ts/2;
 	}
-	else if(limits >= 600 && limits <= 1500){
-		tau = 1500/16;
+	else if(limits >= 800 && limits <= 1500){
 		theta= 230/16 + Ts/2;
 	}else{
-		tau = 3000/16;
 		theta= 150/16 + Ts/2;
 	}
 }

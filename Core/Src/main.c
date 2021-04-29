@@ -654,7 +654,7 @@ void state_motor(){
 			__HAL_TIM_SET_COUNTER(&htim3,0);
 			if(r1 > 0){
 				PID(); // controlador
-				revoluciones = (1/u) * 50;
+				revoluciones = (50/abs(u-100));
 			}
 		}
 
@@ -680,7 +680,7 @@ void state_motor(){
 
 		if(r1 > 0){
 			PID(); // controlador
-			revoluciones = (1/u) * 50;
+			revoluciones = (50/abs(u-100));
 		}
 
 	}
@@ -696,8 +696,8 @@ void state_motor(){
 
 void detect_vel(){
 
-	if(   ((20000/delta_time) - velocidad ) < 15 &&
-		  ((20000/delta_time) - velocidad ) > (-15) ){
+	if(   ((20000/delta_time) - velocidad ) < 8 &&
+		  ((20000/delta_time) - velocidad ) > (-8) ){
 
 	  velocidad = (uint16_t) ((velocidad + (20000/delta_time))/2);
 	  v1 = ((v1 + (20000/delta_time))/2);
