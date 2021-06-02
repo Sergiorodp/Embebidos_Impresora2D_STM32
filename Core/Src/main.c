@@ -46,22 +46,12 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-typedef enum state{
-		  on_off ,
-		  off_off,
-		  off_on ,
-		  on_on  }
-State_sensor;
-
-typedef enum direccion_num{
-			stop,
-			derecha,
-			izquierda
-}Direction;
 
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -106,11 +96,20 @@ uint16_t r1_enter;
 // detectar velocidad
 
 uint16_t delta_time = 1;
-uint16_t velocidad = 0;
+uint32_t velocidad = 0;
 
-GPIO_PinState start = GPIO_PIN_RESET,
+volatile uint16_t counterPID = 0;
+
+GPIO_PinState start = GPIO_PIN_SET,
 			  res_V = GPIO_PIN_RESET;
 			  res_a = GPIO_PIN_RESET;
+
+// adc_value
+
+uint16_t adc_value;
+uint8_t ampere;
+
+float r1 = 0,r2 = 0;
 
 /* USER CODE END PV */
 
@@ -120,10 +119,18 @@ static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_ADC1_Init(void);
+
 /* USER CODE BEGIN PFP */
 
-void state_motor();
+void state_motor( Motor * ref);
 void detect_vel();
+void Read_ADC();
+void initMotor( Motor * ref, GPIO_TypeDef * ch,
+		uint16_t pin_1 , uint16_t pin_2, uint16_t tim_ch);
+
+void ref_update();
+
 //uint32_t prueba();
 
 // serial communication
@@ -167,35 +174,44 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM1_Init();
   MX_TIM3_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_Base_Start(&htim3);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+
   InitResiver(GPIOA,  GPIO_PIN_10);
+
   protocolInit( GPIO_PIN_SET );
+
+  initMotor(&M1, GPIOA, GPIO_PIN_2, GPIO_PIN_3, TIM_CHANNEL_1);
+  initMotor(&M2, GPIOB, GPIO_PIN_0, GPIO_PIN_1, TIM_CHANNEL_2);
 
   revoluciones = 50;
   tiempo_motor = 0;
   numData = 0;
   pulsos = 0;
 
-  // timer init CCR1
-  TIM1->CCR1 = (200 * revoluciones/100) ;
-  TIM1->ARR = 200 - 1;
-  TIM1->PSC = 18;
+	for( uint8_t i = 0; i < 10; i++){
+		dataResiveSerial[i] = 0;
+	}
 
-	num_sensor = 0;
-	num_sensor =
-		(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) << 1) |
-		HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1);
+  // timer init CCR1
+
+  TIM1 -> CCR1 = 100 - 1;
+  TIM1 -> CCR2 = 100 - 1;
+  TIM1 -> ARR = 200 - 1;
+  TIM1 -> PSC = 18;
 
 	anterior = num_sensor;
 	actual = num_sensor;
 
-	initPID_ch();
-	r1 = 0;
-	v1 = 0;
+	//iniciar PID para cada motor
+
+	initPID_ch_m(&M1);
+	initPID_ch_m(&M2);
 
   /* USER CODE END 2 */
 
@@ -203,14 +219,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 
   while (1)
+
   {
 
-/*
-	  if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == 0){
-		  	 prueba();
-	  }
+	  Read_ADC();
 
-*/
 	  if(read){
 		  reciveData();
 		  read = 0;
@@ -223,7 +236,26 @@ int main(void)
 	  }
 
 	  rotate_data();
-	  state_motor();
+
+	  // controlador
+
+	  if(counterPID > 40 && start ){
+
+		  //PID();
+
+		  PID_m(&M1);
+		  PID_m(&M2);
+		  M1.revoluciones = (uint8_t) abs( M1.pid.u - 50 );
+		  M2.revoluciones = (uint8_t) abs( M2.pid.u - 50 );
+
+		  //revoluciones = abs(u - 50);
+		  counterPID = 0;
+
+	  }
+
+	  // actualizar estado motores
+	  state_motor(&M1);
+	  state_motor(&M2);
 
 	  communication(
 			  &dataResiveSerial, // donde se va a guardar los datos
@@ -232,6 +264,14 @@ int main(void)
 			  &command, // comando
 			  &len, // longitud
 			  &numData); // actualiza el dato a enviar
+
+// dataResiveSerial[1] == 0x60 &&
+	  if(  check  ){
+		  ref_update();
+		  M1.in_pos = 0;
+		  M2.in_pos = 0;
+		  check = GPIO_PIN_RESET;
+	  }
 
     /* USER CODE END WHILE */
 
@@ -277,12 +317,58 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC|RCC_PERIPHCLK_USB;
+  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
   PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL_DIV1_5;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -339,6 +425,10 @@ static void MX_TIM1_Init(void)
   sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
   sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -426,7 +516,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 720;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 20000-1;
+  htim3.Init.Period = 50000-1;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -461,11 +551,17 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PA3 PA4 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB0 PB1 */
   GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
@@ -473,12 +569,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_9;
+  /*Configure GPIO pin : PB12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA10 */
   GPIO_InitStruct.Pin = GPIO_PIN_10;
@@ -490,6 +586,34 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+
+void ref_update(){
+
+	M2.pid.ref = (((float) (( (uint16_t) dataResiveSerial[4] << 8)
+			| dataResiveSerial[3]))/0.72);
+
+	M1.pid.ref = ((
+			(float) (( (uint16_t) dataResiveSerial[6] << 8)
+			| dataResiveSerial[5])) /0.72);
+
+	if(r1 != M1.pid.ref){
+
+		M1.pid.k = M1.pid.ref;
+		Params_choose_m(&M1);
+		r1 = M1.pid.ref;
+
+	}
+	if(r2 != M2.pid.ref){
+
+		M2.pid.k = M2.pid.ref;
+		Params_choose_m(&M2);
+		r2 = M2.pid.ref;
+
+	}
+
+
+}
+
 void rotate_data(){
 
 	if(numData > 4){ // longitud de los datos a enviar
@@ -499,25 +623,29 @@ void rotate_data(){
 	switch(numData){
 	case 0:
 
-		data_for_send[0] = (uint8_t) revoluciones;
-		data_for_send[1] = (uint8_t) move;
-		data_for_send[2] = (uint8_t) velocidad;
-		data_for_send[3] = (uint8_t) (velocidad >> 8);
+		data_for_send[0] = (uint8_t) M1.revoluciones;
+		data_for_send[1] = (uint8_t) M1.move;
+		data_for_send[2] = (uint8_t) M1.pid.ref;
+		data_for_send[3] = (uint8_t) ( (uint16_t) M1.pid.ref >> 8);
+		data_for_send[4] = (uint8_t) ( (uint32_t) M1.pid.ref>> 16);
+		data_for_send[5] = (uint8_t) adc_value;
+		data_for_send[6] = (uint8_t) (adc_value >> 8);
 		command = code_revl;
-		len = 4;
+		len = 7;
 
 		break;
 	case 1:
 
-		data_for_send[0] = (uint8_t) pulsos;
-		data_for_send[1] = (uint8_t) (pulsos >> 8);
-		data_for_send[2] = (uint8_t) (pulsos >> 16);
+		data_for_send[0] = (uint8_t) M2.pid.ref;
+		data_for_send[1] = (uint8_t) ( (uint32_t) M2.pid.ref >> 8);
+		data_for_send[2] = (uint8_t) ( (uint32_t) M2.pid.ref >> 16);
 		data_for_send[3] = (uint8_t) r1_enter;
 		data_for_send[4] = (uint8_t) (r1_enter >> 8);
+		data_for_send[5] = (uint8_t) ( (M1.in_pos << 1) | (M2.in_pos));
 
 		command = code_time;
 
-		len = 5;
+		len = 6;
 
 		break;
 
@@ -535,21 +663,28 @@ void rotate_data(){
 		break;
 
 	case 3:
+		/*
 		data_for_send[0] = (uint8_t) numero_seleccionado;
 		data_for_send[1] = (uint8_t) (numero_seleccionado >> 8);
 		data_for_send[2] = (uint8_t) (numero_seleccionado >> 16);
+		*/
+
+		data_for_send[0] = (uint8_t) M2.distancia;
+		data_for_send[1] = (uint8_t) (M2.distancia >> 8);
+		data_for_send[2] = (uint8_t) (M2.distancia >> 16);
+
 		command = code_tecleando;
 		len = 3;
 		break;
 
 	case 4:
 
-		if(distancia < 0)
+		if(M1.distancia < 0)
 		data_for_send[3] = (uint8_t) 1;
 		else
 		data_for_send[3] = (uint8_t) 0;
 
-		temp_dis = (uint32_t) abs(distancia);
+		temp_dis = (uint32_t) abs( M1.distancia);
 
 		data_for_send[0] = (uint8_t) temp_dis;
 		data_for_send[1] = (uint8_t) (temp_dis >> 8);
@@ -588,21 +723,27 @@ void select_data(){
 	}
 
 	if(Compress[0] == 0x68 && Compress[1] == 0xcb){
+
 		switch(menu){
 		case 0:
-			if( numero_temp < 101 )
-			revoluciones = (uint8_t) numero_temp;
+			if( numero_temp < 100 )
+			M1.revoluciones = (uint8_t) (numero_temp);
+
 			break;
 		case 1:
 			pulsos = numero_temp;
 			break;
 		case 2:
-			if( numero_temp < 2300){
+			if( numero_temp < 1000){
+
 				r1_enter = numero_temp;
-				r1 = (numero_temp/16);
-				k=r1;
-				params_choose(r1_enter);
-				actualizar_par();
+				M1.pid.ref = ( (float)numero_temp/0.72 );
+				M1.pid.k = M1.pid.ref;
+				M2.pid.ref = M1.pid.ref;
+				M2.pid.k = M2.pid.ref;
+
+				Params_choose_m(&M1);
+				Params_choose_m(&M2);
 			}
 			break;
 		case 3:
@@ -619,90 +760,116 @@ void select_data(){
 	}
 }
 
-void state_motor(){
+void initMotor( Motor * ref, GPIO_TypeDef * ch, uint16_t pin_1 ,
+		uint16_t pin_2, uint16_t tim_ch){
 
-	num_sensor = 0;
-	num_sensor =
-			(HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0) << 1) |
-			HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1);
+	ref -> GPIO_Pin_1 = pin_1;
+	ref -> GPIO_Pin_2 = pin_2;
+	ref -> GPIOx = ch;
+	ref -> revoluciones = 50;
+	ref -> distancia = 555;
+	ref -> move = stop;
+	ref -> tim_chanel = tim_ch;
+	ref -> num_sensor = 0;
+	ref -> num_sensor = (HAL_GPIO_ReadPin(ch, pin_2) << 1) |
+			HAL_GPIO_ReadPin(ch , pin_1);
+	ref -> in_pos = 0;
 
-	switch(num_sensor){
+}
+
+void state_motor( Motor * ref){
+
+	ref -> num_sensor = 0;
+	ref -> num_sensor =
+			(HAL_GPIO_ReadPin(ref->GPIOx, ref->GPIO_Pin_2) << 1) |
+			HAL_GPIO_ReadPin(ref->GPIOx, ref->GPIO_Pin_1);
+
+	switch(ref->num_sensor){
 	case 0:
-		actual = off_off; // 2
+		ref->actual = off_off; // 2
 		break;
 	case 1:
-		actual = off_on; // 3
+		ref->actual = off_on; // 3
 		break;
 	case 2:
-		actual = on_off; // 1
+		ref->actual = on_off; // 1
 		break;
 	case 3:
-		actual = on_on; // 4
+		ref->actual = on_on; // 4
 		break;
 	}
 
-	if(anterior != actual){
+	if(ref->anterior != ref->actual){
 
+		/*
 		if(pulsos > 0){
 			pulsos--;
 		}
+		*/
+/*
+		if( actual == 1 ){
 
-		delta_time = __HAL_TIM_GET_COUNTER(&htim3);
-
-		if(actual == 4 || actual == 1 ){
+			delta_time = __HAL_TIM_GET_COUNTER(&htim3);
 			detect_vel();
 			__HAL_TIM_SET_COUNTER(&htim3,0);
-			if(r1 > 0){
-				PID(); // controlador
-				revoluciones = abs(u-50);
-			}
-		}
-
-		if((actual - anterior) == 1 || (actual - anterior) == -3 ){
-
-			move = derecha;
-			distancia += 1;
-
-		}else if( (actual - anterior) == -1 || (actual - anterior) == 3 ){
-
-			move = izquierda;
-			distancia -= 1;
 
 		}
+*/
+		if((ref->actual - ref->anterior) == 1 ||
+				(ref->actual - ref->anterior) == -3 ){
 
-		anterior = actual;
+			ref->move = derecha;
+			ref->distancia += 1;
 
-	}else if( __HAL_TIM_GET_COUNTER(&htim3) > 19000 ){
+		}else if( (ref->actual - ref->anterior) == -1 ||
+				(ref->actual - ref->anterior) == 3 ){
+
+			ref->move = izquierda;
+			ref->distancia -= 1;
+
+		}
+
+		ref->pid.feedback = (float) ref->distancia;
+
+		ref->anterior = ref->actual;
+
+	}
+
+	/*
+	else if( __HAL_TIM_GET_COUNTER(&htim3) > 45000 ){
 
 		move = stop;
 		velocidad = 0;
+		v1 = 0;
 		__HAL_TIM_SET_COUNTER(&htim3,0);
 
-		if(r1 > 0){
-			PID(); // controlador
-			revoluciones = abs(u-50);
-		}
+	}
+	*/
+
+	if( !start )
+	{
+		ref->porcent = (2 * 50 );
+		__HAL_TIM_SET_COMPARE(&htim1, ref->tim_chanel, ref->porcent);
+	}
+	else{
+	ref->porcent = ( (2 * ref->revoluciones) );
+
+	__HAL_TIM_SET_COMPARE(&htim1, ref->tim_chanel, ref->porcent);
 
 	}
 
-	if(pulsos == 0 || !start ){
-		uint16_t porcent = (200 * 50/100 );
-		__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, porcent);
-	}else{
-		uint16_t porcent = (200 * revoluciones/100 );
-		__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, porcent);
-	}
 }
 
 void detect_vel(){
 
-	if(   ((20000/delta_time) - velocidad ) < 8 &&
-		  ((20000/delta_time) - velocidad ) > (-8) ){
+	uint32_t delta = (100000/delta_time);
 
-	  velocidad = (uint16_t) ((velocidad + (20000/delta_time))/2);
-	  v1 = ((v1 + (20000/delta_time))/2);
+	if( abs(delta - velocidad) < 32 ){
+
+	  velocidad = (uint32_t) ((velocidad + delta)/2);
 
 	}
+
 }
 
 // agragar función a USB_DEVICE_cdc_if CON __WEAK
@@ -721,8 +888,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		read = 1;
 
 		counterTime += 1;
+		counterPID +=1;
 
-		if(counterTime > 19999){
+		if(counterTime > 199){
 			waitTime += 1;
 			counterTime = 0;
 		}
@@ -739,6 +907,18 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 }
 
+void Read_ADC(){
+
+	HAL_ADC_Start(&hadc1);
+	HAL_ADC_PollForConversion(&hadc1, 1);
+	uint16_t adc_temp = (uint16_t) HAL_ADC_GetValue(&hadc1);
+
+	adc_value = ((adc_value + adc_temp)/2);
+
+	//ampere = (uint16_t)( ((float)adc_value ) * 0.80); // 3300/4095 = 0.80
+
+}
+
 /* USER CODE END 4 */
 
 /**
@@ -752,6 +932,7 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+	  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9,GPIO_PIN_SET);
   }
   /* USER CODE END Error_Handler_Debug */
 }

@@ -114,10 +114,10 @@ void reciveData(){
 
 	if(params.rcvstate == IR_STATE_MARK || params.rcvstate == IR_STATE_SPACE){
 		if (irdata == IR_MARK) {
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET);
 		}
 		else if((irdata == IR_SPACE)){
-			HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET); }
+			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET); }
 	}
 
 	if( params.rcvstate == IR_STATE_STOP ){

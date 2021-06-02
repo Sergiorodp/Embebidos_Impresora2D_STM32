@@ -16,15 +16,17 @@
 GPIO_PinState repeat_m;
 
 // variables
-GPIO_PinState resive_protocol,wait,check,ACK;
+volatile GPIO_PinState resive_protocol;
+GPIO_PinState wait,check,ACK;
 uint16_t  waitTime;
 uint8_t _data_protocol_save[125];
+uint8_t Tx;
 
 // functions
-void ArmarPack(uint8_t* data, uint8_t command, uint8_t packLen);
+void ArmarPack(uint8_t* data, uint8_t command, uint8_t packLen, GPIO_PinState ack);
 void AnalisePack( uint8_t *package , uint8_t *numData);
 void SendACK( GPIO_PinState check, uint8_t *data );
-void communication( uint8_t *package, GPIO_PinState *rxData,
+void communication( uint8_t *package, volatile GPIO_PinState *rxData,
 		            uint8_t *data, uint8_t *_commd, uint8_t *_len, uint8_t *numData);
 void XORData(uint8_t* data);
 void protocolInit( GPIO_PinState repeat );

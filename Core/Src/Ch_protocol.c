@@ -13,6 +13,7 @@
 #include <string.h>
 
 uint8_t paquete[125],
+		Ack_pack[20];
         data_Ch[125],
 		sum = 0,
 		i;
@@ -32,17 +33,32 @@ void protocolInit( GPIO_PinState repeat ){
 	repeat_m = repeat; // reset repeat
 }
 
-void ArmarPack(uint8_t* data, uint8_t command, uint8_t packLen){
+void ArmarPack(uint8_t* data, uint8_t command, uint8_t packLen, GPIO_PinState ack){
 
-	paquete[0] = START; // inicio
-	paquete[1] = command; // comando
-	paquete[2] = packLen; // tamaño 1
-	for(i = 0; i < packLen; i++){
-		paquete[i + 3] = data[i]; // data
+	if(!ack){
+
+		paquete[0] = START; // inicio
+		paquete[1] = command; // comando
+		paquete[2] = packLen; // tamaño 1
+		for(i = 0; i < packLen; i++){
+			paquete[i + 3] = data[i]; // data
+		}
+		XORData(&paquete);
+		paquete[packLen + 3] = sum;
+		paquete[packLen + 4] = END; // final
+
+	}else{
+
+		Ack_pack[0] = START; // inicio
+		Ack_pack[1] = command; // comando
+		Ack_pack[2] = packLen; // tamaño 1
+		for(i = 0; i < packLen; i++){
+			Ack_pack[i + 3] = data[i]; // data
+		}
+		XORData(&Ack_pack);
+		Ack_pack[packLen + 3] = sum;
+		Ack_pack[packLen + 4] = END; // final
 	}
-	XORData(&paquete);
-	paquete[packLen + 3] = sum;
-	paquete[packLen + 4] = END; // final
 }
 
 void XORData(uint8_t* data){
@@ -90,12 +106,12 @@ void AnalisePack( uint8_t *package , uint8_t *numData){
 void SendACK( GPIO_PinState check, uint8_t *data ){
 	if(check){
 		data[0] = 0x01;
-		ArmarPack( data, Ack , 1);
+		ArmarPack( data, Ack , 1,GPIO_PIN_SET);
 	}else{
 		data[0] = 0x00;
-		ArmarPack( data, Ack , 1);
+		ArmarPack( data, Ack , 1,GPIO_PIN_SET);
 	}
-	CDC_Transmit_FS(paquete, 6);
+	CDC_Transmit_FS(Ack_pack, 6);
 }
 
 /*
@@ -105,17 +121,19 @@ void SendACK( GPIO_PinState check, uint8_t *data ){
  */
 
 
-void communication( uint8_t *package, GPIO_PinState *rxData,
+void communication( uint8_t *package, volatile GPIO_PinState *rxData,
 		            uint8_t *data, uint8_t *_commd, uint8_t *_len, uint8_t *numData){
 
 	if( *rxData ){
-		*rxData = GPIO_PIN_RESET;
+
 		if(package[0] == START && (package[package[2] + 4]) == END){
 			AnalisePack(package, numData);
 		}
+
+		*rxData = GPIO_PIN_RESET;
 	}
 
-	if( waitTime == 1 && repeat_m){
+	if( waitTime >= 1 && repeat_m){
 		NoACK = GPIO_PIN_SET;
 		waitTime = 0;
 	}
@@ -124,11 +142,11 @@ void communication( uint8_t *package, GPIO_PinState *rxData,
 		//memcpy( _data_protocol_save, data , (*_len));
 		wait = GPIO_PIN_RESET;
 		waitTime = 0;
-		ArmarPack(data, *_commd, *_len);
+		ArmarPack(data, *_commd, *_len , GPIO_PIN_RESET);
 	}
 
 	if(ACK || NoACK){
-		CDC_Transmit_FS(paquete, (paquete[2]) + 5);
+		Tx = CDC_Transmit_FS(paquete, (paquete[2]) + 5);
 		ACK = GPIO_PIN_RESET;
 		NoACK = GPIO_PIN_RESET;
 		wait = GPIO_PIN_SET;

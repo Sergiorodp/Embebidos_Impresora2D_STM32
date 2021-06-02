@@ -1,6 +1,6 @@
-Ch_protocol.c:26:6:protocolInit	16	static
-Ch_protocol.c:35:6:ArmarPack	16	static
-Ch_protocol.c:48:6:XORData	16	static
-Ch_protocol.c:55:6:AnalisePack	16	static
-Ch_protocol.c:90:6:SendACK	16	static
-Ch_protocol.c:108:6:communication	24	static
+Ch_protocol.c:27:6:protocolInit	16	static
+Ch_protocol.c:36:6:ArmarPack	16	static
+Ch_protocol.c:64:6:XORData	16	static
+Ch_protocol.c:71:6:AnalisePack	16	static
+Ch_protocol.c:106:6:SendACK	16	static
+Ch_protocol.c:124:6:communication	24	static
